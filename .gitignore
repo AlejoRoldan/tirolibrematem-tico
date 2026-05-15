@@ -1,4 +1,3 @@
-@'
 # ── Unity ──────────────────────────────
 [Ll]ibrary/
 [Tt]emp/
@@ -13,6 +12,7 @@ MemoryCaptures/
 *.mdb.meta
 sysinfo.txt
 *.unitypackage
+*.unityproj
 
 # ── Visual Studio ───────────────────────
 .vs/
@@ -43,5 +43,7 @@ Desktop.ini
 # ── JetBrains Rider ─────────────────────
 .idea/
 *.sln.iml
-'@ | Set-Content -Encoding UTF8 .gitignore
-Write-Host "✅ .gitignore creado"
+
+# ── Android Build ────────────────────────
+*.apk
+*.aab
