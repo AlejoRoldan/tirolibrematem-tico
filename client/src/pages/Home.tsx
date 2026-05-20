@@ -4,7 +4,7 @@
  * Diseño: Cancha de Barrio Colorida — Fredoka One + Nunito
  */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type PointerEvent } from "react";
 import { useGameEngine, LEVELS, Vec2, GOAL_W, GOAL_H, BALL_START } from "@/hooks/useGameEngine";
 
 // ── Imágenes ──────────────────────────────────────────────────────────────────
@@ -97,6 +97,31 @@ interface CanvasProps {
 function GameCanvas({ gkX, gkDir, ballProgress, ballActive, targetCoord, level, phase, stadiumImg, gkImg, onGoalClick }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cfg = LEVELS[level];
+  const [previewCoord, setPreviewCoord] = useState<Vec2 | null>(null);
+  const [isPointerActive, setIsPointerActive] = useState(false);
+
+  const getGoalCoord = useCallback((px: number, py: number) => {
+    const gL = 10;
+    const gT = 6;
+    const gW = 80;
+    const gH = 55;
+    const touchMargin = 8;
+    if (px < gL - touchMargin || px > gL + gW + touchMargin || py < gT - touchMargin || py > gT + gH + touchMargin) {
+      return null;
+    }
+    const clampedX = Math.min(Math.max(px, gL), gL + gW);
+    const clampedY = Math.min(Math.max(py, gT), gT + gH);
+    const normX = (clampedX - gL) / gW;
+    const normY = (clampedY - gT) / gH;
+    const x = cfg.useCenter
+      ? Math.round((normX * GOAL_W - GOAL_W / 2) * 2) / 2
+      : Math.round(normX * GOAL_W * 2) / 2;
+    const y = Math.round((1 - normY) * GOAL_H * 2) / 2;
+    return {
+      x: Math.max(cfg.useCenter ? -GOAL_W / 2 : 0, Math.min(cfg.useCenter ? GOAL_W / 2 : GOAL_W, x)),
+      y: Math.max(0, Math.min(GOAL_H, y)),
+    };
+  }, [cfg.useCenter]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -193,6 +218,19 @@ function GameCanvas({ gkX, gkDir, ballProgress, ballActive, targetCoord, level, 
       ctx.fillText(`(${targetCoord.x}, ${targetCoord.y})`, tx, ty - 14);
     }
 
+    if (previewCoord && !targetCoord && phase === "aiming") {
+      const normX = cfg.useCenter ? (previewCoord.x + GOAL_W / 2) / GOAL_W : previewCoord.x / GOAL_W;
+      const normY = 1 - previewCoord.y / GOAL_H;
+      const tx = gL + normX * gW, ty = gT + normY * gH;
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.fillStyle = "rgba(255,107,53,0.16)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.arc(tx, ty, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+
     // ── Portero ──
     if (cfg.hasGK) {
       const pkX = gL + (gkX / 100) * gW;
@@ -244,7 +282,7 @@ function GameCanvas({ gkX, gkDir, ballProgress, ballActive, targetCoord, level, 
     ctx.fillStyle = "rgba(255,255,255,0.55)";
     ctx.beginPath(); ctx.arc(bx - r * 0.28, by - r * 0.28, r * 0.2, 0, Math.PI * 2); ctx.fill();
 
-  }, [gkX, gkDir, ballProgress, ballActive, targetCoord, level, phase, stadiumImg, gkImg, cfg]);
+  }, [gkX, gkDir, ballProgress, ballActive, targetCoord, level, phase, stadiumImg, gkImg, cfg, previewCoord]);
 
   // Resize + redraw
   useEffect(() => {
@@ -265,36 +303,76 @@ function GameCanvas({ gkX, gkDir, ballProgress, ballActive, targetCoord, level, 
 
   useEffect(() => { draw(); }, [draw]);
 
-  const handlePointer = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (phase !== "aiming") return;
-    if (e.pointerType === "touch") e.preventDefault();
+  const getPointerGoalCoord = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
+    if (e.pointerType === "touch") e.preventDefault();
+
     const rect = canvas.getBoundingClientRect();
     const px = ((e.clientX - rect.left) / rect.width) * 100;
     const py = ((e.clientY - rect.top) / rect.height) * 100;
 
     const gL = 10, gT = 6, gW = 80, gH = 55;
-    if (px < gL || px > gL + gW || py < gT || py > gT + gH) return;
+    const margin = 8;
+    if (px < gL - margin || px > gL + gW + margin || py < gT - margin || py > gT + gH + margin) {
+      return null;
+    }
 
-    const normX = (px - gL) / gW;
-    const normY = (py - gT) / gH;
+    const clampedX = Math.max(gL, Math.min(gL + gW, px));
+    const clampedY = Math.max(gT, Math.min(gT + gH, py));
+    const normX = (clampedX - gL) / gW;
+    const normY = (clampedY - gT) / gH;
     const useCenter = LEVELS[level].useCenter;
 
-    let cx = useCenter
+    const cx = useCenter
       ? Math.round((normX * GOAL_W - GOAL_W / 2) * 2) / 2
       : Math.round(normX * GOAL_W * 2) / 2;
-    let cy = Math.round((1 - normY) * GOAL_H * 2) / 2;
+    const cy = Math.round((1 - normY) * GOAL_H * 2) / 2;
 
-    cx = Math.max(useCenter ? -GOAL_W / 2 : 0, Math.min(useCenter ? GOAL_W / 2 : GOAL_W, cx));
-    cy = Math.max(0, Math.min(GOAL_H, cy));
-    onGoalClick({ x: cx, y: cy });
-  }, [phase, level, onGoalClick]);
+    return {
+      x: Math.max(useCenter ? -GOAL_W / 2 : 0, Math.min(useCenter ? GOAL_W / 2 : GOAL_W, cx)),
+      y: Math.max(0, Math.min(GOAL_H, cy)),
+    };
+  }, [level]);
+
+  const updatePreview = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
+    if (phase !== "aiming") return setPreviewCoord(null);
+    const coord = getPointerGoalCoord(e);
+    setPreviewCoord(coord);
+  }, [phase, getPointerGoalCoord]);
+
+  const handlePointerDown = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
+    if (phase !== "aiming") return;
+    setIsPointerActive(true);
+    updatePreview(e);
+  }, [phase, updatePreview]);
+
+  const handlePointerMove = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
+    if (phase !== "aiming" || !isPointerActive) return;
+    updatePreview(e);
+  }, [phase, isPointerActive, updatePreview]);
+
+  const handlePointerUp = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
+    if (phase !== "aiming") return;
+    const coord = getPointerGoalCoord(e);
+    setIsPointerActive(false);
+    setPreviewCoord(null);
+    if (coord) onGoalClick(coord);
+  }, [phase, getPointerGoalCoord, onGoalClick]);
+
+  const clearPreview = useCallback(() => {
+    setIsPointerActive(false);
+    setPreviewCoord(null);
+  }, []);
 
   return (
     <canvas
       ref={canvasRef}
-      onPointerUp={handlePointer}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={clearPreview}
+      onPointerCancel={clearPreview}
       style={{
         display: "block",
         width: "100%",
@@ -611,7 +689,7 @@ export default function Home() {
   const phaseHint = state.phase === "menu"
     ? "Pulsa Jugar para empezar el partido y aprender matemáticas jugando."
     : state.phase === "aiming"
-      ? "Toca dentro de la portería para elegir dónde disparar."
+      ? "Toca y desliza dentro de la portería para elegir mejor el tiro."
       : state.phase === "math"
         ? "Resuelve rápido la multiplicación para que el tiro sea potente."
         : state.phase === "shooting"
